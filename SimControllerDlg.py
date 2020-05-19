@@ -25,6 +25,7 @@ from qgis.core import QgsField
 from .Ui_SimControllerDlg import Ui_SimControllerDlg
 import os
 import subprocess
+import csv
 from . import ControlFile
 
 # create the dialog for SimControllerDlg
@@ -186,99 +187,127 @@ class SimControllerDlg(QDialog):
             b2 = len(selectedIDs)
                  
         #Run simulations
-        for bfeat in self.bprovider.getFeatures(): 
-            
-            if self.ui.cbxOnlySelected.isChecked():
-                if bfeat.id() not in selectedIDs:
-                    continue 
-            
-            b1+=1          
+        for key1 in list(self.cfile.TemplateInput.keys()):
+            #self.ui.textBrowser.append("ww " +  str(key1))
+            f = open(self.cfile.TemplateInput[key1][0], 'r')
+            lines = f.readlines()
+            f.close()
+            lines.pop(0)
+
+            b1+=1
             #Write model input files
-            for key1 in list(self.cfile.TemplateInput.keys()):
-                f = open(self.cfile.TemplateInput[key1][0], 'r')
-                lines = f.readlines()
-                f.close()
-                lines.pop(0)
-                for key2 in list(self.cfile.AttributeCode.keys()):
+            for key2 in list(self.cfile.AttributeCode.keys()):
+                for i, bfeat in enumerate(self.bprovider.getFeatures()):
+                    if self.ui.cbxOnlySelected.isChecked():
+                        if bfeat.id() not in selectedIDs:
+                            continue
                     bfindx = self.bprovider.fieldNameIndex(self.cfile.AttributeCode[key2][0])
                     value = bfeat.attribute(self.cfile.AttributeCode[key2][0])
                     ftype = str(bfields[bfindx].typeName())
                     code = self.cfile.AttributeCode[key2][1]
-                    for i,line in enumerate(lines):
-                        if ftype in ['String']:
-                            svalue = value.rjust(len(code))
-                        elif ftype in ['Integer','Integer64']:
-                            myfmt = '%' + str(len(code)) + 'd'
-                            svalue = myfmt % int(value)
-                        elif ftype in ['Real','Double']:
-                            if float(value) >= 0:
-                                decnum = len(code) - len(str(int(value))) - 1
-                            elif float(value) < 0:
-                                decnum = len(code) - len(str(int(value))) - 2
-                            myfmt = '%' + str(len(code)) + '.' + str(decnum) + 'f'
-                            svalue = myfmt % round(float(value),decnum)
-                        else:
-                            self.setCursor(Qt.ArrowCursor)
-                            QMessageBox.critical(self, 'Simulation Controller',
-                                                 'ftype not found:' + str(ftype))
-                            return
-                        lines[i] = lines[i].replace(code,svalue)                
-                f = open(self.cfile.TemplateInput[key1][1], 'w')
-                for line in lines:
-                    f.write(line)
-                f.close()
+                    # for i,line in enumerate(lines):
+                    line = lines[i]
+                    if ftype in ['String']:
+                        svalue = value.rjust(len(code))
+                    elif ftype in ['Integer','Integer64']:
+                        #myfmt = '%' + str(len(code)) + 'd'
+                        #svalue = myfmt % int(value)
+                        #myfmt = '%' + str(len(code)) + 'd'
+                        svalue = int(value)
+                    elif ftype in ['Real','Double']:
+                        if float(value) >= 0:
+                            decnum = len(code) - len(str(int(value))) - 1
+                        elif float(value) < 0:
+                            decnum = len(code) - len(str(int(value))) - 2
+                        #myfmt = '%' + str(len(code)) + '.' + str(decnum) + 'f'
+                        #svalue = myfmt % round(float(value),decnum)
+                        svalue = float(value)
+                    else:
+                        self.setCursor(Qt.ArrowCursor)
+                        QMessageBox.critical(self, 'Simulation Controller',
+                                             'ftype not found:' + str(ftype))
+                            # return
+                    #self.ui.textBrowser.append(str(i) + " " + str(code) + " " + str(svalue))
+                    lines[i] = lines[i].replace(code,str(svalue))
+            f = open(self.cfile.TemplateInput[key1][1], 'w')
+            for line in lines:
+                f.write(line)
+            f.close()
 
-            #Run model
-            self.p = subprocess.run(self.cfile.CommandLine, 
-                               stdout=subprocess.PIPE,
-                               stderr=subprocess.PIPE,
-                               shell=True,
-                               text = True)
-            self.ui.textBrowser.append(self.p.stdout)
-            self.ui.textBrowser.append(self.p.stderr)
+        #Run model
+        self.p = subprocess.run(self.cfile.CommandLine,
+                                stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE,
+                                shell=True,
+                                text = True)
+        self.ui.textBrowser.append(self.p.stdout)
+        self.ui.textBrowser.append(self.p.stderr)
             
-            #Read model output files
-            attr.clear()
-            for key in list(self.cfile.InstructionOutput.keys()):
-                f = open(self.cfile.InstructionOutput[key][0], 'r')
-                lines = f.readlines()
-                f.close()
-                lines.pop(0)
-                f = open(self.cfile.InstructionOutput[key][1], 'r', errors='replace')
-                output = f.readlines()
-                f.close()
-                for line in lines:
-                    line = line.split(',')
-                    if len(line) < 2:
-                        continue
-                    rownum = 0
-                    bfindx = self.bprovider.fieldNameIndex(line[0])
-                    for item in line[1:]:
-                        if item[0:4] in ['Plus', 'plus', 'PLUS']:
-                            rownum+=int(item[4:])
-                        elif item[0:4] in ['Find', 'find', 'FIND']:
-                            for i in range(rownum, len(output)):
-                                start = output[i].find(item[4:])
-                                if start >= 0:
-                                    rownum = i
-                                    break
-                        elif item[0:3] in ['Get', 'get', 'GET']:
-                            extents = item[3:].split(':')
-                            extents = [int(i) for i in extents]
-                            value = output[rownum][extents[0]:extents[1]]
-                            attr.update({bfindx:value})
+        # Read model output files
+        attr.clear()
+        output = {}
+        for key in list(self.cfile.InstructionOutput.keys()):
+            f = open(self.cfile.InstructionOutput[key][0], 'r')
+            lines = f.readlines()
+            f.close()
+            lines.pop(0)
+            with open(self.cfile.InstructionOutput[key][1], 'r', errors='replace') as f:
+                rd = csv.reader(f)
+                next(rd)
+                for l in rd:
+                    # self.ui.textBrowser.append(str(l[0]))
+                    output[int(l[0])] = l[1:]
+                #output = f.readlines()
+            #f.close()
+
+        for ifeat, bfeat in enumerate(self.bprovider.getFeatures()):
+            n = int(bfeat.attribute("Node"))
+            if self.ui.cbxOnlySelected.isChecked():
+                if bfeat.id() not in selectedIDs:
+                    continue
+
+            for line in lines:
+                line = line.split(',')
+                if len(line) < 2:
+                    continue
+                rownum = 0
+                bfindx = self.bprovider.fieldNameIndex(line[0])
+                for item in line[1:]:
+                    #self.ui.textBrowser.append("ww " +  str(item[0:4]))
+                    if item[0:4] in ['Plus', 'plus', 'PLUS']:
+                        rownum+=int(item[4:])
+                    elif item[0:4] in ['Find', 'find', 'FIND']:
+                        for i in range(rownum, len(output)):
+                            start = output[i].find(item[4:])
+                            if start >= 0:
+                                rownum = i
+                                break
+                    elif item[0:3] in ['Get', 'get', 'GET']:
+                        # extents = item[3:].split(':')
+                        # extents = [int(i) for i in extents]
+                        # value = output[rownum][extents[0]:extents[1]]
+                        #self.ui.textBrowser.append("ww " +  str(n) + "," + str(bfindx) + "," + str(len(output)))
+
+                        if n in output:
+                            value = output[n][int(item[3:])]
                         else:
-                            self.setCursor(Qt.ArrowCursor)
-                            QMessageBox.critical(self, 'Simulation Controller', 'Check instruction file commands.')
-                            return
-            result = self.bprovider.changeAttributeValues({bfeat.id():attr})
-            if not result:
-                self.setCursor(Qt.ArrowCursor)
-                QMessageBox.critical(self, 'Simulation Controller', 'Could not change attribute value.')
-                return  
-                                      
-            self.ui.ProgressBar.setValue(float(b1)/float(b2) * 100.0)
-            QApplication.processEvents()
+                            value = 0.0
+                        #self.ui.textBrowser.append(str(value) + " " + str(n in output))
+                        attr.update({bfindx:value})
+                    else:
+                        self.setCursor(Qt.ArrowCursor)
+                        QMessageBox.critical(self, 'Simulation Controller', 'Check instruction file commands.')
+                        return
+                    #self.ui.textBrowser.append("ww " +  str(value))
+                    result = self.bprovider.changeAttributeValues({bfeat.id():attr})
+        #result = True
+        if not result:
+            self.setCursor(Qt.ArrowCursor)
+            QMessageBox.critical(self, 'Simulation Controller', 'Could not change attribute value.')
+            return
+
+        self.ui.ProgressBar.setValue(float(b1)/float(b2) * 100.0)
+        QApplication.processEvents()
         
         self.setCursor(Qt.ArrowCursor)       
                                  
