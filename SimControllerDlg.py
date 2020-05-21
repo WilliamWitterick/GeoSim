@@ -27,6 +27,7 @@ import os
 import subprocess
 import csv
 from . import ControlFile
+import yaml
 
 # create the dialog for SimControllerDlg
 class SimControllerDlg(QDialog):
@@ -189,15 +190,23 @@ class SimControllerDlg(QDialog):
         #Run simulations
         for key1 in list(self.cfile.TemplateInput.keys()):
             #self.ui.textBrowser.append("ww " +  str(key1))
-            f = open(self.cfile.TemplateInput[key1][0], 'r')
-            lines = f.readlines()
-            f.close()
-            lines.pop(0)
+            # f = open(self.cfile.TemplateInput[key1][0], 'r')
+            # lines = f.readlines()
+            # f.close()
+            # lines.pop(0)
+            with open(self.cfile.TemplateInput[key1][0], 'r') as f:
+                f.readline()
+                data = yaml.safe_load(f)
+                lines = data[list(data.keys())[0]]
+                for k,v in data[list(data.keys())[0]].items():
+                    print(k,v)
 
+            
             b1+=1
             #Write model input files
             for key2 in list(self.cfile.AttributeCode.keys()):
                 for i, bfeat in enumerate(self.bprovider.getFeatures()):
+                    n = int(bfeat.attribute("NODE"))
                     if self.ui.cbxOnlySelected.isChecked():
                         if bfeat.id() not in selectedIDs:
                             continue
@@ -206,7 +215,8 @@ class SimControllerDlg(QDialog):
                     ftype = str(bfields[bfindx].typeName())
                     code = self.cfile.AttributeCode[key2][1]
                     # for i,line in enumerate(lines):
-                    line = lines[i]
+                    #for il, line in enumerate(data[list(data.keys())[0]][n]):
+                    line = data[list(data.keys())[0]][n]
                     if ftype in ['String']:
                         svalue = value.rjust(len(code))
                     elif ftype in ['Integer','Integer64']:
@@ -226,14 +236,22 @@ class SimControllerDlg(QDialog):
                         self.setCursor(Qt.ArrowCursor)
                         QMessageBox.critical(self, 'Simulation Controller',
                                              'ftype not found:' + str(ftype))
-                            # return
-                    #self.ui.textBrowser.append(str(i) + " " + str(code) + " " + str(svalue))
-                    lines[i] = lines[i].replace(code,str(svalue))
-            f = open(self.cfile.TemplateInput[key1][1], 'w')
-            for line in lines:
-                f.write(line)
-            f.close()
-
+                                # return
+                                #self.ui.textBrowser.append(str(i) + " " + str(code) + " " + str(svalue))
+                    if isinstance(data[list(data.keys())[0]][n], list):
+                        for il, lin in enumerate(data[list(data.keys())[0]][n]):
+                            if lin == code:
+                                data[list(data.keys())[0]][n][il] = value #lin.replace(code,str(svalue))
+                    else:
+                        if data[list(data.keys())[0]][n] == code:
+                            data[list(data.keys())[0]][n] = value #line.replace(code,str(svalue))
+                        #lines[n] = lines[n].replace(code,str(svalue))
+            # f = open(self.cfile.TemplateInput[key1][1], 'w')
+            # for line in lines:
+            #     f.write(line)
+            # f.close()
+            with open(self.cfile.TemplateInput[key1][1], 'w') as f:
+                yaml.dump(data, f, default_flow_style=False)
         #Run model
         self.p = subprocess.run(self.cfile.CommandLine,
                                 stdout=subprocess.PIPE,
@@ -261,7 +279,7 @@ class SimControllerDlg(QDialog):
             #f.close()
 
         for ifeat, bfeat in enumerate(self.bprovider.getFeatures()):
-            n = int(bfeat.attribute("Node"))
+            n = int(bfeat.attribute("NODE"))
             if self.ui.cbxOnlySelected.isChecked():
                 if bfeat.id() not in selectedIDs:
                     continue
